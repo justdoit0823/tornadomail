@@ -46,15 +46,12 @@ import re
 import email.utils
 import base64
 import hmac
-from email.base64mime import encode as encode_base64
+from .compat import encode_base64, basestring
+from .encoding import smart_unicode, smart_str
 from sys import stderr
 from functools import partial
-import contextlib
+from tornado import gen, iostream
 
-from tornado import gen
-from tornado import iostream
-from tornado import ioloop
-from tornado import stack_context
 
 __all__ = ["SMTPException","SMTPServerDisconnected","SMTPResponseException",
            "SMTPSenderRefused","SMTPRecipientsRefused","SMTPDataError",
@@ -303,7 +300,7 @@ class SMTP:
                 host, port = host[:i], host[i+1:]
                 try: port = int(port)
                 except ValueError:
-                    raise socket.error, "nonnumeric port"
+                    raise socket.error("nonnumeric port")
         if not port: port = self.default_port
         result = yield gen.Task(
             self._get_socket, port, host, self.timeout
@@ -321,7 +318,7 @@ class SMTP:
         if self.debuglevel > 0: print>>stderr, 'send:', repr(str)
         if hasattr(self, 'sock') and self.sock:
             try:
-                self.sock.write(str, callback)
+                self.sock.write(smart_str(str), callback)
             except socket.error:
                 self.close()
                 raise SMTPServerDisconnected('Server not connected')
@@ -353,7 +350,7 @@ class SMTP:
         resp=[]
         while 1:
             try:
-                line = yield gen.Task(self.sock.read_until, '\n')
+                line = yield gen.Task(self.sock.read_until, b'\n')
             except socket.error:
                 line = ''
             if line == '':
@@ -370,10 +367,10 @@ class SMTP:
                 errcode = -1
                 break
             # Check if multiline response.
-            if line[3:4]!="-":
+            if line[3:4] != b"-":
                 break
 
-        errmsg = "\n".join(resp)
+        errmsg = b"\n".join(resp)
         if self.debuglevel > 0:
             print>>stderr, 'reply: retcode (%s); Msg: %s' % (errcode,errmsg)
         callback(errcode, errmsg)
@@ -421,7 +418,7 @@ class SMTP:
             return
         self.does_esmtp=1
         #parse the ehlo response -ddm
-        resp=self.ehlo_resp.split('\n')
+        resp=self.ehlo_resp.split(b'\n')
         del resp[0]
         for each in resp:
             # To be able to communicate with as many SMTP servers as possible,
@@ -430,7 +427,7 @@ class SMTP:
             # 1) Else our SMTP feature parser gets confused.
             # 2) There are some servers that only advertise the auth methods we
             #    support using the old style.
-            auth_match = OLDSTYLE_AUTH.match(each)
+            auth_match = OLDSTYLE_AUTH.match(smart_unicode(each))
             if auth_match:
                 # This doesn't remove duplicates, but that's no problem
                 self.esmtp_features["auth"] = self.esmtp_features.get("auth", "") \
@@ -441,7 +438,8 @@ class SMTP:
             # It's actually stricter, in that only spaces are allowed between
             # parameters, but were not going to check for that here.  Note
             # that the space isn't present if there are no parameters.
-            m=re.match(r'(?P<feature>[A-Za-z0-9][A-Za-z0-9\-]*) ?',each)
+            m = re.match(
+                r'(?P<feature>[A-Za-z0-9][A-Za-z0-9\-]*) ?', smart_unicode(each))
             if m:
                 feature=m.group("feature").lower()
                 params=m.string[m.end("feature"):].strip()
@@ -588,7 +586,8 @@ class SMTP:
             return encode_base64(response, eol="")
 
         def encode_plain(user, password):
-            return encode_base64("\0%s\0%s" % (user, password), eol="")
+            return encode_base64(
+                smart_str("\0%s\0%s" % (user, password)), eol="")
 
 
         AUTH_PLAIN = "PLAIN"
