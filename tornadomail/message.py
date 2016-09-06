@@ -109,7 +109,7 @@ def sanitize_address(addr, encoding):
         if '@' in addr:
             localpart, domain = addr.split('@', 1)
             localpart = str(Header(localpart, encoding))
-            domain = domain.encode('idna')
+            domain = smart_unicode(domain.encode('idna'))
             addr = '@'.join([localpart, domain])
         else:
             addr = str(Header(addr, encoding))
