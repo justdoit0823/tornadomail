@@ -46,7 +46,7 @@ import re
 import email.utils
 import base64
 import hmac
-from .compat import encode_base64, basestring
+from .compat import encode_base64, basestring, PY3
 from .encoding import smart_unicode, smart_str
 from sys import stderr
 from functools import partial
@@ -276,9 +276,22 @@ class SMTP:
         if hasattr(self, '__get_ssl_socket'):
             callback(self.__get_ssl_socket)
             return
-        s = ssl.wrap_socket(stream.socket, do_handshake_on_connect=False, **kwargs)
-        stream.close()
-        stream = iostream.SSLIOStream(s)
+
+        if PY3:
+            # due to ssl wrap_socket will detach argument sock in Python 3 and
+            # can't be used no longer.Also the behaviour of socket.socket.close
+            # is different between 2 and 3.
+            sock = stream.socket
+            iden_sock = socket.fromfd(sock.fileno(), sock.family, sock.type)
+            ssl_sock = ssl.wrap_socket(
+                iden_sock, do_handshake_on_connect=False, **kwargs)
+            stream.close()
+        else:
+            ssl_sock = ssl.wrap_socket(
+                stream.socket, do_handshake_on_connect=False, **kwargs)
+            stream.close()
+
+        stream = iostream.SSLIOStream(ssl_sock)
         self.__get_ssl_socket = stream
         callback(stream)
 
@@ -445,7 +458,7 @@ class SMTP:
                 params=m.string[m.end("feature"):].strip()
                 if feature == "auth":
                     self.esmtp_features[feature] = self.esmtp_features.get(feature, "") \
-                            + " " + params
+                                                   + " " + params
                 else:
                     self.esmtp_features[feature]=params
         if callback:
@@ -638,6 +651,7 @@ class SMTP:
             (code, resp) = result.args
         elif authmethod is None:
             raise SMTPException("No suitable authentication method found.")
+
         if code not in (235, 503):
             # 235 == 'Authentication successful'
             # 503 == 'Error: already authenticated'
